@@ -1,0 +1,56 @@
+#!/usr/bin/env osascript -l JavaScript
+
+const SPLIT_VERTICAL = "splitVertically"
+const SPLIT_HORIZONTAL = "splitHorizontally"
+
+function bootstrap(session, command, split) {
+  if (command instanceof Array) {
+    let sessions = [session]
+    for (let i = 1; i < command.length; ++i) {
+      sessions.push(session[`${split}WithSameProfile`]())
+    }
+    const nextSplit = split === SPLIT_VERTICAL ? SPLIT_HORIZONTAL : SPLIT_VERTICAL
+    for (let i = 0; i < command.length; ++i) {
+      bootstrap(sessions[i], command[i], nextSplit)
+    }
+  } else if (command) {
+    session.write({ text: command })
+  }
+}
+
+function tabConfiguration({ tabs }) {
+  const wrapWith = cd => cmd =>
+    cmd instanceof Array ? cmd.map(wrapWith(cd)) : cmd ? `cd ${cd} && ${cmd}` : cd
+
+  return tabs.map(({ cd, commands, firstSplit }) => ({
+    firstSplit: firstSplit || SPLIT_HORIZONTAL,
+    commands: cd ? commands.map(wrapWith(cd)) : commands,
+  }))
+}
+
+function main(config) {
+  const terminal = Application("iTerm")
+  terminal.includeStandardAdditions = true
+
+  const window = terminal.currentWindow()
+  let tabs = [window.currentTab()]
+
+  const tabConfig = tabConfiguration(config)
+
+  for (let i = 0; i < tabConfig.length; ++i) {
+    if (i !== 0) {
+      tabs.push(window.createTabWithDefaultProfile())
+    }
+    const { commands, firstSplit } = tabConfig[i]
+    bootstrap(tabs[i].currentSession(), commands, firstSplit)
+  }
+
+  tabs[0].select()
+}
+
+function run(argv) {
+  const fileContents = $.NSString.stringWithContentsOfFile(argv[0]).js || "[]"
+  const config = JSON.parse(fileContents)
+
+  main(config)
+}
